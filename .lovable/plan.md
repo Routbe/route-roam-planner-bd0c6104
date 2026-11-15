@@ -1,42 +1,42 @@
-# Stap 10 volledig + rollout 0276 (GO gegeven)
+# Stap 10 (Level-9) + rollout 0276 — herzien plan
 
-Uitgangspunt (nagekeken): 0275 staat al live op Neon; `db/` en Neon lopen gelijk. `vdf.rs` bestaat (420 regels) maar zit nog niet in de engine. Er is nog geen `noise-tunnel.ts` en geen `audit-dudect.ts`. 0276/0277 staan klaar in `db-pending/`. 0277 krijgt **geen** rollout in deze stap.
+Uitgangspunt (nagekeken): 0275 staat live op Neon; `db/` en Neon lopen gelijk. `vdf.rs` bestaat maar zit niet in de engine. Er is nog geen `noise-tunnel.ts` of `audit-dudect.ts`. 0276/0277 staan in `db-pending/`. Z3-modellen staan in `scripts/formal-rls/`.
 
-## 1. Basismeting (eerst, niets wijzigen)
-- Draai de bestaande testsuite, de typecheck en `bun run verify:rls` en leg de uitkomst vast als vertrekpunt.
-- Controleer of de wasm-bouw hier het pinbestand exact reproduceert (`build.sh --check`).
+## 1. Basismeting (niets wijzigen)
+- Tests, typecontrole, `verify:rls` en `build.sh --check` draaien; uitkomst vastleggen als vertrekpunt.
 
-## 2. Wesolowski VDF in rout-zk
-- Hang `vdf.rs` in `lib.rs` en exporteer `vdf_eval(input, T)` en `vdf_verify(input, T, proof)` via `abi.rs`, binnen de vaste arena (geen allocator, geen memory.grow).
-- Voeg Rust-tests toe in `tests/vdf.rs`: een kleine modulus, vectoren voor RSA-2048 en weigeringsgevallen.
-- Bouw de module, zet de nieuwe SHA-384 en ABI 7 in `zk-wasm-pin.ts` en maak de functies beschikbaar in `zk-engine.ts` en in de worker- en clientberichten.
+## 2. Rollout 0276 op Neon (EXPAND, GO gegeven)
+- 0276 naar `db/`, `CODE_SCHEMA_LEVEL = "0276"`, snapshot bijwerken; PGlite-replay- en rollout-test voor 0276 groen.
+- Eén transactie via `scripts/migration-rollout.ts`: SHA-256 gelijk aan het bestand, 0275 als voorganger, definer-guard in dezelfde transactie.
+- Teruglezen: geschiedenisrij + checksum, nieuwe functies aanwezig, elke definer op `pg_catalog, pg_temp`.
 
-## 3. Noise_IKpsk2-tunnel
-- Maak `src/lib/crypto-enclave/noise-tunnel.ts`: `Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s` met @noble-bibliotheken die al in het project zitten. Het draait alleen in de worker, met getypeerde berichten en het wissen van buffers in `finally`.
-- Voeg tests toe met de officiële Noise-testvectoren, plus weigering bij een verkeerde PSK of statische sleutel, replay en een gewijzigde nonce.
+## 3. Pipeline 0276 -> 0277
+- `scripts/tenant-backfill.ts`: vult de nieuwe tenant-kolommen in batches binnen de eigenaarscontext, idempotent, en eindigt met een verificatiequery (0 rijen zonder tenant, 0 afwijkingen tussen oude en nieuwe kolom). Eerst droog op PGlite, daarna pas live na aparte bevestiging.
+- `scripts/formal-rls/certify-0277.ts`: zet de policies van 0277 om naar Z3 (bestaand `tenant-model.ts`) en bewijst niet-interferentie (geen rij van tenant A zichtbaar of schrijfbaar voor B) en dat geen huidige schrijver breekt. Uitkomst `unsat` = gecertificeerd, rapport in `docs/`.
+- 0277 blijft in `db-pending/` tot productie 0276 meldt, de backfill nul afwijkingen toont, Z3 certificeert én jij apart GO geeft.
 
-## 4. Dudect-timingaudit
-- Maak `scripts/audit-dudect.ts` en het script `test:dudect`: een Welch t-test met afwisselend vaste en willekeurige invoer, minstens 100.000 iteraties per operatie. Gemeten worden scalaire vermenigvuldiging, subtle-vergelijkingen, ratchetstappen, OPAQUE en VDF-verificatie.
-- Criterium: |t| < 4.5. Het rapport komt in `docs/`. Een operatie die faalt, wordt gemeld en niet weggemasseerd.
+## 4. Wesolowski VDF (`wasm/rout-zk/src/vdf.rs`)
+- Twee groepen achter één ABI: RSA-2048 en **class groups van imaginaire kwadratische velden** (binaire kwadratische vormen, discriminant afgeleid uit een publieke seed via hash-to-prime, dus geen trusted setup).
+- Vaste-breedte bignum (discriminant 2048 bit), compositie/kwadratering via NUCOMP/NUDUPL met reductie; Wesolowski-bewijs met Fiat-Shamir hash-to-prime ℓ. Pietrzak alleen als tweede verificatiepad indien het binnen de arena past; anders expliciet gemeld.
+- Geen allocator, geen `memory.grow`; elke tussenliggende kwadrateringsbuffer via `wipe::bytes`/volatile writes na gebruik.
+- Rust-tests: kleine discriminant met handmatig narekenbare vectoren, RSA- en class-group-rondes, weigering bij vals bewijs/verkeerde T/niet-gereduceerde vorm. ABI 7 en nieuwe pin alleen bij reproduceerbare bouw.
 
-## 5. Rollout 0276 op Neon (EXPAND)
-- Controleer opnieuw dat de huidige code stabiel is en dat de PGlite-test voor 0276/0277 groen is.
-- Verplaats `0276_tenant_column_expand.sql` naar `db/` en zet `CODE_SCHEMA_LEVEL` op `"0276"`. Werk de schema-snapshot bij.
-- Bouw de transactie met `scripts/migration-rollout.ts`, met de SHA-256-controle en de controle op 0275 als voorganger. Voer die uit als één aanroep naar Neon.
-- Controleer daarna: de geschiedenisrij en de checksum, dat de nieuwe functies bestaan, en dat elke eigenaarsfunctie het veilige zoekpad `pg_catalog, pg_temp` heeft. De app moet automatisch de functies van 0276 gaan gebruiken.
-- 0277 blijft in `db-pending/` tot productie 0276 rapporteert en jij apart GO geeft.
+## 5. Hybride PQ-Noise-tunnel (`src/lib/crypto-enclave/noise-tunnel.ts`)
+- Patroon IKpsk2 uitgebreid met KEM-tokens (PQNoise/“hybrid” aanpak): elke DH-stap wordt aangevuld met ML-KEM-1024 encapsulatie; beide geheimen gaan via `MixKey` de chaining key in, zodat de sessie veilig blijft zolang X25519 óf ML-KEM standhoudt — hetzelfde niveau als RVE2 uit Stap 8.
+- ChaChaPoly + BLAKE2s, @noble-bibliotheken uit het project, alleen in de crypto-werker, getypeerde berichten, buffers gewist in `finally`.
+- Tests: officiële Noise-vectoren voor het klassieke deel; voor het hybride deel bestaan geen officiële vectoren, dus eigen vastgezette vectoren plus weigering bij verkeerde PSK, verkeerde statische sleutel, gewijzigde KEM-ciphertext, replay en gewijzigde nonce.
+- Eerlijk: dit is een tunnel op berichtniveau, geen echte TLS; "mTLS" betekent hier wederzijdse authenticatie via statische sleutels.
 
-## 6. Validatie en documentatie
-- Draai de tests, de typecheck en `verify:rls` opnieuw. De lijst met nog open RLS-bevindingen mag alleen korter worden.
-- Werk bij:
-  - `docs/HANDOVER.md`: alleen een nieuwe bijlage voor Stap 10.
-  - `roadmap.md`
-  - `db-pending/README.md`: het verouderde "0275 pending" eruit.
-  - `AGENTS.md`: regels voor VDF, Noise en dudect.
+## 6. Dudect-audit (`scripts/audit-dudect.ts`, `bun run test:dudect`)
+- Per operatie ≥ 1.000.000 metingen, 10.000 niet-meegetelde warm-up-runs, `bun --expose-gc` met `gc()` tussen blokken, afwisselend vaste/willekeurige klasse, Welch t-test met grens |t| < 4,5.
+- Operaties: X25519-vermenigvuldiging, ML-KEM decapsulatie, subtle-vergelijkingen, ratchetstap, OPAQUE, VDF-verificatie (Wasm), het WebAuthn-PRF-afleidingspad (HKDF na PRF-uitvoer) en AES-256-GCM met foute vs. juiste AAD.
+- Rapport in `docs/`; een gefaalde operatie wordt gemeld, niet weggemasseerd. Looptijd kan per operatie minuten zijn; draait buiten de gewone testsuite.
+
+## 7. Validatie en documentatie
+- Alles opnieuw draaien; open RLS-bevindingen mogen alleen korter worden.
+- Bijwerken: bijlage Stap 10 in `docs/HANDOVER.md`, `roadmap.md`, `db-pending/README.md`, `AGENTS.md` (regels VDF, PQ-Noise, dudect, backfill/Z3-poort).
 
 ## Risico's
-- De Rust-compiler hier is 1.95.0, maar zelf gebouwd uit broncode. De bouw vraagt het officiële rustup-pakket (LLVM 22.1.2). Als `--check` het pinbestand niet reproduceert, gebeurt het volgende:
-  - Ik lever de code en de tests wel.
-  - De nieuwe pin laat ik open.
-  - De bouw met de officiële toolchain moet dan in CI of bij jou gebeuren. Er komt geen niet-reproduceerbare pin in de code.
-- De dudect-uitkomst is statistisch bewijs voor deze machine, geen formeel bewijs.
+- Rust hier is niet de officiële build: reproduceert `--check` niet, dan lever ik code en tests maar geen nieuwe pin; bouwen moet dan in CI.
+- Class groups zonder allocator is zwaar werk; als de arena (2 MiB) te klein blijkt, meld ik dat en stel een grotere vaste arena voor in plaats van stil te versimpelen.
+- Dudect is statistisch bewijs voor deze machine, geen formeel bewijs; JavaScript (PRF/AES via WebCrypto) is niet volledig onder onze controle.
