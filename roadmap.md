@@ -231,3 +231,10 @@
   - [ ] Server-functies + schermen die RecoveryV4Store aanroepen (crypto in de enclave-worker); cron voor recovery_v4_expire_due
   - [x] 0268/0269 naar db-archive/ (eigenaar 2026-11-14)
   - [x] 0272 live op Neon (GO eigenaar 2026-11-14), byte-gelijk met de replay
+
+## Stap 10 (herzien, wacht op Approve)
+- [ ] Rollout 0276 op Neon + CODE_SCHEMA_LEVEL 0276
+- [ ] Wesolowski VDF: RSA-2048 + class groups (geen trusted setup), allocator-vrij, volatile wipe
+- [ ] Hybride PQ-Noise tunnel (ML-KEM-1024 + X25519, IKpsk2-basis)
+- [ ] Dudect-audit: 1M iteraties, 10k warm-up, --expose-gc, ook PRF- en AES-GCM-AAD-pad
+- [ ] Backfill-/verificatiescript 0276 -> 0277 en Z3-certificering 0277
