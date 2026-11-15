@@ -71,7 +71,7 @@ describe("hybrid PQ Noise IKpsk2 (X25519 + ML-KEM-1024)", () => {
   });
 
   it("rejects every single-byte flip in message 1 and message 2", () => {
-    for (const where of [0, 40, 1700, 3300, 3400, 5000]) {
+    for (const where of [0, 40, 1700, 3300, 3400, 4847]) {
       const s = setup();
       const m1 = s.init.writeMessage1();
       m1[where] ^= 0x80;
