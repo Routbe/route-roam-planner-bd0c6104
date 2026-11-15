@@ -32,8 +32,6 @@ export const DECLASSIFIED: ReadonlyArray<Declassification> = [
   { table: "public.platform_integration_switches", cmd: "SELECT", reason: "global integration switches (db/0241): rout_app reads only provider and mode, no member columns", columns: ["mode", "provider"] },
   { table: "public.alias_profiles", cmd: "SELECT", reason: "only enabled alias pages, which are public profile pages by design" },
   { table: "public.custom_domains", cmd: "SELECT", reason: "only verified domains, needed to route a public host name; the TXT token is published in DNS" },
-  { table: "public.public_profiles", cmd: "SELECT", reason: "public projection of profiles with forwarding_email nulled; read-only since 0275; leaves with db-pending/0276 (security_invoker)" },
-  { table: "public.profile_handles", cmd: "SELECT", reason: "usernames only, used for handle availability; read-only since 0275; leaves with db-pending/0276 (security_invoker)" },
   { table: "public.account_deletion_audit", cmd: "INSERT", reason: "append-only, no member columns; each row carries an HMAC under the server secret, so a forged row fails verification" },
 ];
 
@@ -61,14 +59,20 @@ export const SERVICE_BOUNDARY: ReadonlyArray<{ schema: string; table: string; re
  */
 /** Tables whose INSERT carries the 0275 workspace guard (db/0275). */
 export const F8A = ["booking_event_types", "bookings", "oauth_clients", "rout_calendars", "tracked_qrs", "user_assets", "webhook_endpoints", "workspace_transfers"] as const;
+/**
+ * Findings db/0276 (EXPAND, applied on Neon 2026-11-15) closed: F3 and every F8b entry. Kept so the
+ * replay tests can show the 0276 rollback reopens exactly these; never part of KNOWN_OPEN again.
+ */
+export const CLOSED_BY_0276: ReadonlyArray<string> = [
+  "rls:public.workspaces:INSERT:check",
+  ...[...F8A, "users", "profiles"].map((t) => `rls:public.${t}:UPDATE:check`),
+  "rls:public.users:INSERT:check",
+  "rls:public.profiles:INSERT:check",
+];
 const ORACLE_OPEN = "personal or externally known identifier: a duplicate-key error tells whether another member holds it; fix by moving writes into a definer that answers uniformly";
 export const KNOWN_OPEN: ReadonlyArray<{ id: string; reason: string }> = [
   { id: "rls:public.profiles:SELECT:using", reason: "F1 rout_public_read = true exposes every profile column (email, legal names, forwarding token, location, Stripe ids) to rout_app; privacy is enforced only in server code. Needs EXPAND (public reads through public_profiles / a definer) before CONTRACT drops the policy" },
   { id: "rls:public.social_links:SELECT:using", reason: "F2 social_links_public_select = true also exposes verification_code and last_error; the owner policies key on app.current_user_id, which the app never sets" },
-  { id: "rls:public.workspaces:INSERT:check", reason: "F3 rout_create only checks that a caller exists, so a new workspace may name another member in legacy_user_id; workspace conversion writes legacy_user_id for the source account, so the fix needs that path in a definer first" },
-  ...[...F8A, "users", "profiles"].map((t) => ({ id: `rls:public.${t}:UPDATE:check`, reason: "F8b open: an own row can be moved into a foreign workspace by UPDATE; needs a trigger that checks membership only when the workspace column changes" })),
-  { id: "rls:public.users:INSERT:check", reason: "F8b open: migrated_to_workspace_id may name a foreign workspace on insert" },
-  { id: "rls:public.profiles:INSERT:check", reason: "F8b open: workspace_id may name a foreign workspace on insert" },
   ...["users(email_normalized)", "profiles(stripe_account_id)", "identity_links(issuer,provider_sub)", "user_identities(provider,provider_account_id)", "user_linked_accounts(platform,provider_account_id)", "user_snapchat(external_id)", "identity_relays(proxy_email)", "identity_verifications(unique_human_id)"].map((k) => ({ id: `oracle:${k}`, reason: `F6 ${ORACLE_OPEN}` })),
 ];
 
@@ -117,7 +121,7 @@ export const SRF_LEMMAS: Record<string, { body: string; sql: string; bypassRls: 
  * Views created WITH (security_invoker = true). The snapshot has no view
  * options, so the replay test compares this list with pg_class.reloptions.
  */
-export const INVOKER_VIEWS: ReadonlySet<string> = new Set(["auth.users", "public.grid_items", "public.ingest_tokens"]);
+export const INVOKER_VIEWS: ReadonlySet<string> = new Set(["auth.users", "public.grid_items", "public.ingest_tokens", "public.profile_handles", "public.public_profiles"]);
 
 /**
  * Helpers whose meaning the encoder relies on, pinned to their exact body

@@ -16,7 +16,7 @@ import { listMigrationFiles, planMigrations } from "../../scripts/migration-plan
 import { readCatalog } from "../../scripts/schema-catalog";
 import { migrationDefinerGuardSql, migrationDefinerViolations } from "../../scripts/security-definer-policy";
 import { Verifier } from "../../scripts/formal-rls-verifier";
-import { F8A, KNOWN_OPEN, PENDING_0277_DECLASSIFIED, PRIVATE_PROFILE_COLUMNS } from "../../scripts/formal-rls/tenant-model";
+import { CLOSED_BY_0276, F8A, KNOWN_OPEN, PENDING_0277_DECLASSIFIED, PRIVATE_PROFILE_COLUMNS } from "../../scripts/formal-rls/tenant-model";
 import { contextStatements } from "@/lib/db-context";
 
 const ROOT = join(__dirname, "..", "..");
@@ -28,7 +28,8 @@ const A = "00000000-0000-4000-8000-00000000000a";
 const B = "00000000-0000-4000-8000-00000000000b";
 const MARK = "bob-private-91d2";
 /** KNOWN_OPEN entries 0276 + 0277 close: F1, F2, F3 and every F8b entry. */
-const CLOSED = KNOWN_OPEN.map((k) => k.id).filter((id) => !id.startsWith("oracle:"));
+const OPEN_UNTIL_0277 = KNOWN_OPEN.map((k) => k.id).filter((id) => !id.startsWith("oracle:"));
+const CLOSED = [...CLOSED_BY_0276, ...OPEN_UNTIL_0277];
 
 describe("db-pending/0276 + 0277 on a replay of db/ (PGlite)", () => {
   let db: PGlite;
@@ -208,8 +209,8 @@ describe("db-pending/0276 + 0277 on a replay of db/ (PGlite)", () => {
     const known = new Set(KNOWN_OPEN.map((k) => k.id));
     expect(v.findings.map((f) => f.id).filter((id) => !known.has(id))).toEqual([]);
     expect(v.findings.map((f) => f.id).filter((id) => CLOSED.includes(id))).toEqual([]);
-    // The two view declassifications are no longer needed either: 0276 makes both views security_invoker.
-    expect(v.unusedModelEntries.sort()).toEqual([...CLOSED.map((id) => `known_open:${id}`), "declassified:public.profile_handles:SELECT", "declassified:public.public_profiles:SELECT"].sort());
+    // Since db/0276 both views are security_invoker, so they need no declassification.
+    expect(v.unusedModelEntries.sort()).toEqual(OPEN_UNTIL_0277.map((id) => `known_open:${id}`).sort());
     for (const t of [...F8A, "users", "profiles"]) expect(v.obligations.find((o) => o.table === `public.${t}` && o.cmd === "UPDATE" && o.phase === "check")?.outcome.status, t).toBe("proven");
     expect(v.obligations.find((o) => o.table === "public.profiles" && o.cmd === "SELECT")?.outcome.status).toBe("declassified");
     expect(v.obligations.find((o) => o.table === "public.social_links" && o.cmd === "SELECT")?.outcome).toEqual({ status: "proven", via: "smt" });
