@@ -1,0 +1,416 @@
+/**
+ * UI-thread side of the cryptographic enclave. Contains NO crypto: it only
+ * posts typed messages to crypto.worker.ts and resolves the replies. There is
+ * deliberately no main-thread fallback — without a worker, crypto refuses.
+ */
+import type { EnclaveArgs, EnclaveErrorCode, EnclaveOp, EnclaveRequest, EnclaveResponse, EnclaveResult, LedgerDraft, PasswordSource, SealedForUser, VaultSummary } from "./protocol";
+import type { PrivateEnvelope } from "@/lib/ledger/crypto";
+import type { Capability, CapabilityGrant } from "@/lib/protocol/capabilities";
+import type { EventDraft, SignedEvent } from "@/lib/protocol/events";
+import type { RecoveryCeremony } from "./recovery-mpc";
+import type { SignedRoot } from "./smt";
+import type { EpochLink, HostKeyAnchor } from "./forward-secure";
+import { wipeMessage } from "@/lib/crypto/wipe";
+
+export type { LedgerDraft, SealedForUser, VaultSummary } from "./protocol";
+
+export class EnclaveError extends Error {
+  constructor(readonly code: EnclaveErrorCode) {
+    super(`enclave:${code}`);
+  }
+}
+
+/** Signed roots are public; the worker wipes its request copy, so send a copy. */
+const copyRoot = (s: SignedRoot): SignedRoot => ({ ...s, root: s.root.slice(), publicKey: s.publicKey.slice(), signature: s.signature.slice() });
+/** Epoch chains are public; send copies for the same reason. */
+const copyLinks = (l: EpochLink[]): EpochLink[] => l.map((x) => ({ from: x.from, to: x.to, publicKey: x.publicKey.slice(), signature: x.signature.slice() }));
+
+const TIMEOUT_MS = 120_000; // RSA-3072 generation on slow phones can take a while
+type Waiter = { resolve: (v: unknown) => void; reject: (e: EnclaveError) => void; timer: ReturnType<typeof setTimeout>; started: boolean; owner: Worker };
+
+let worker: Worker | null = null;
+let seq = 0;
+let epoch = 0;
+let cancellation: AbortController | null = null;
+const waiting = new Map<number, Waiter>();
+
+/** Fence asynchronous UI/HTTP continuations across account changes or worker termination. */
+export function captureEnclaveScope() {
+  if (!cancellation) cancellation = new AbortController();
+  const at = epoch;
+  return {
+    signal: cancellation.signal,
+    assertCurrent: () => { if (at !== epoch) throw new EnclaveError("enclave_crashed"); },
+  };
+}
+
+function rejectAll(code: EnclaveErrorCode) {
+  for (const [id, w] of waiting) {
+    clearTimeout(w.timer);
+    w.reject(new EnclaveError(code));
+    waiting.delete(id);
+  }
+}
+
+/** Drops volatile worker state; persisted non-extractable device keys are unchanged. */
+export function terminateEnclave(code: EnclaveErrorCode = "enclave_crashed"): void {
+  epoch++;
+  cancellation?.abort();
+  cancellation = null;
+  const previous = worker;
+  worker = null;
+  previous?.terminate();
+  rejectAll(code);
+}
+
+function deadline(w: Worker) {
+  return setTimeout(() => { if (worker === w) terminateEnclave("timeout"); }, TIMEOUT_MS);
+}
+
+function queueProgress(w: Worker) {
+  for (const waiter of waiting.values()) {
+    if (waiter.owner !== w || waiter.started) continue;
+    clearTimeout(waiter.timer);
+    waiter.timer = deadline(w);
+  }
+}
+
+function getWorker(): Worker {
+  if (worker) return worker;
+  if (typeof window === "undefined" || typeof Worker === "undefined") throw new EnclaveError("enclave_unavailable");
+  let w: Worker;
+  try {
+    w = new Worker(new URL("./crypto.worker.ts", import.meta.url), { type: "module", name: "rout-crypto-enclave" });
+  } catch {
+    throw new EnclaveError("enclave_unavailable");
+  }
+  w.onmessage = (event: MessageEvent<EnclaveResponse>) => {
+    const msg = event.data;
+    if (worker !== w) { wipeMessage(msg); return; }
+    if (!msg || !Number.isSafeInteger(msg.id) || (!("started" in msg && msg.started === true) && !("ok" in msg && typeof msg.ok === "boolean"))) {
+      wipeMessage(msg);
+      if (worker === w) terminateEnclave();
+      return;
+    }
+    const waiter = waiting.get(msg.id);
+    if (!waiter || worker !== w) {
+      wipeMessage(msg);
+      return;
+    }
+    queueProgress(w);
+    if ("started" in msg) {
+      clearTimeout(waiter.timer);
+      waiter.started = true;
+      waiter.timer = deadline(w);
+      return;
+    }
+    waiting.delete(msg.id);
+    clearTimeout(waiter.timer);
+    if (msg.ok) waiter.resolve(msg.result);
+    else waiter.reject(new EnclaveError(msg.code));
+  };
+  w.onerror = w.onmessageerror = () => {
+    if (worker === w) terminateEnclave();
+  };
+  worker = w;
+  return w;
+}
+
+export function callEnclave<K extends EnclaveOp>(op: K, args: EnclaveArgs<K>, transfer: Transferable[] = []): Promise<EnclaveResult<K>> {
+  // Disposal must never recreate a worker after a crash, timeout or logout.
+  if (!worker && (op === "vault.discard" || op === "masterKey.discardPending" || op === "ledger.discardPending" || op === "ledger.lock" || op === "password.close" || op === "opaque.discard" || op === "secure.wipe")) {
+    return Promise.resolve(null as EnclaveResult<K>);
+  }
+  return new Promise<EnclaveResult<K>>((resolve, reject) => {
+    let w: Worker;
+    try {
+      w = getWorker();
+    } catch (e) {
+      wipeMessage(args);
+      reject(e instanceof EnclaveError ? e : new EnclaveError("enclave_unavailable"));
+      return;
+    }
+    const id = ++seq;
+    const timer = deadline(w);
+    waiting.set(id, { resolve: resolve as (v: unknown) => void, reject, timer, started: false, owner: w });
+    try {
+      w.postMessage({ id, op, args } as EnclaveRequest, transfer);
+    } catch {
+      waiting.delete(id);
+      clearTimeout(timer);
+      wipeMessage(args);
+      reject(new EnclaveError("invalid_input"));
+    }
+  });
+}
+
+const moved = (...list: (Uint8Array | undefined)[]): Transferable[] => list.filter((b): b is Uint8Array => !!b).map((b) => b.buffer as ArrayBuffer);
+
+/** Typed façade. Uint8Array arguments are transferred: the caller's copy becomes empty. */
+export const enclave = {
+  vault: {
+    prepare: (secret: string) => callEnclave("vault.prepare", { secret }),
+    decrypt: (handle: string, vaultId: string, blob: string, expiresAt: string): Promise<VaultSummary> =>
+      callEnclave("vault.decrypt", { handle, vaultId, blob, expiresAt }),
+    reseal: (handle: string, userId: string): Promise<SealedForUser> => callEnclave("vault.reseal", { handle, userId }),
+    discard: (handle: string) => callEnclave("vault.discard", { handle }),
+  },
+  deviceKey: {
+    status: (userId: string) => callEnclave("deviceKey.status", { userId }),
+  },
+  masterKey: {
+    generate: () => callEnclave("masterKey.generate", {}),
+    commitPending: (handle: string, userId: string) => callEnclave("masterKey.commitPending", { handle, userId }),
+    discardPending: (handle: string) => callEnclave("masterKey.discardPending", { handle }),
+    unlock: (userId: string, mnemonic: string) => callEnclave("masterKey.unlock", { userId, mnemonic }),
+  },
+  data: {
+    /** UI → worker plaintext, worker → UI ciphertext (ready for the database). */
+    seal: (userId: string, aad: string, data: unknown): Promise<SealedForUser> => {
+      const plaintext = new TextEncoder().encode(JSON.stringify(data));
+      return callEnclave("data.seal", { userId, aad, plaintext }, moved(plaintext));
+    },
+    open: async <T = unknown>(userId: string, aad: string, blob: string): Promise<T> => {
+      const { plaintext } = await callEnclave("data.open", { userId, aad, blob });
+      try {
+        return JSON.parse(new TextDecoder().decode(plaintext)) as T;
+      } finally {
+        plaintext.fill(0);
+      }
+    },
+  },
+  ledger: {
+    generate: (prf?: Uint8Array): Promise<LedgerDraft> => callEnclave("ledger.generate", prf ? { prf } : {}, moved(prf)),
+    activate: (keyId: string) => callEnclave("ledger.activate", { keyId }),
+    discardPending: (keyId: string) => callEnclave("ledger.discardPending", { keyId }),
+    unlock: (keyId: string, envelope: PrivateEnvelope, material: { recoveryCode: string } | { prf: Uint8Array }) =>
+      callEnclave("ledger.unlock", { keyId, envelope, ...material }, "prf" in material ? moved(material.prf) : []),
+    decrypt: (keyId: string, items: { id: string; payload: string }[]) => callEnclave("ledger.decrypt", { keyId, items }),
+    lock: (keyId?: string) => callEnclave("ledger.lock", keyId ? { keyId } : {}),
+  },
+  ceremony: {
+    /**
+     * Starts a 3-of-4 ceremony; `cardSecret` (32 bytes from a freshly tapped ROUT Card fragment) is required and transferred.
+     * `mnemonic` is the existing Master Key's words when this device has a key.
+     */
+    begin: (userId: string, serverFactorKey: Uint8Array, cardSecret: Uint8Array, mnemonic?: string) =>
+      callEnclave(
+        "ceremony.begin",
+        { userId, serverFactorKey, cardSecret, ...(mnemonic === undefined ? {} : { mnemonic }) },
+        moved(serverFactorKey, cardSecret),
+      ),
+    checkWords: (handle: string, answers: { position: number; word: string }[]) => callEnclave("ceremony.checkWords", { handle, answers }),
+    sealDevice: (handle: string, prf: Uint8Array) => callEnclave("ceremony.sealDevice", { handle, prf }, moved(prf)),
+    commit: (handle: string, userId: string) => callEnclave("ceremony.commit", { handle, userId }),
+    discard: (handle: string) => callEnclave("ceremony.discard", { handle }),
+    restore: (input: { userId: string; ceremony: RecoveryCeremony; keyId: string; prf?: Uint8Array; paperWords?: string; serverShare?: Uint8Array; cardSecret?: Uint8Array }) =>
+      callEnclave("ceremony.restore", input, moved(input.prf, input.serverShare, input.cardSecret)),
+    recoverLogin: (input: { userId: string; ceremony: RecoveryCeremony; keyId: string; challenge: string; prf?: Uint8Array; paperWords?: string; serverShare?: Uint8Array; cardSecret?: Uint8Array }) =>
+      callEnclave("ceremony.recoverLogin", input, moved(input.prf, input.serverShare, input.cardSecret)),
+  },
+  pairwise: {
+    claim: (root: Uint8Array, sector: string, nonce: string) => callEnclave("pairwise.claim", { root, sector, nonce }, moved(root)),
+  },
+  zk: {
+    /** Pedersen commitment to value ∈ [0, 2^64 - 1]; a given blinding is transferred (the caller's copy is emptied). */
+    commit: (value: bigint, blinding?: Uint8Array) =>
+      callEnclave("pedersen.commit", blinding ? { value, blinding } : { value }, moved(blinding)),
+    /** Commitment + range proof bound to `context`; the blinding is transferred. */
+    proveRange: (value: bigint, blinding: Uint8Array, context: Uint8Array) =>
+      callEnclave("bulletproofs.prove_range", { value, blinding, context: context.slice() }, moved(blinding)),
+    verifyRange: (commitment: Uint8Array, proof: Uint8Array, context: Uint8Array) =>
+      callEnclave("bulletproofs.verify_range", { commitment: commitment.slice(), proof: proof.slice(), context: context.slice() }),
+  },
+  smt: {
+    /** Empty nullifier tree for `treeId`, signed at epoch 0 by this member's root key. */
+    genesis: (userId: string, treeId: string) => callEnclave("smt.genesis", { userId, treeId }),
+    /** Spends `nullifier` against a signed root; { inserted: false } for a reused nullifier, a foreign/edited/stale root or wrong siblings. */
+    insertNullifier: (userId: string, signedRoot: SignedRoot, nullifier: Uint8Array, siblings: Uint8Array) =>
+      callEnclave("smt.insert_nullifier", { userId, signedRoot: copyRoot(signedRoot), nullifier: nullifier.slice(), siblings: siblings.slice() }),
+    verifyNonMembership: (userId: string, signedRoot: SignedRoot, nullifier: Uint8Array, siblings: Uint8Array) =>
+      callEnclave("smt.verify_non_membership", { userId, signedRoot: copyRoot(signedRoot), nullifier: nullifier.slice(), siblings: siblings.slice() }),
+    verifySignedRoot: (userId: string, signedRoot: SignedRoot) => callEnclave("smt.verify_signed_root", { userId, signedRoot: copyRoot(signedRoot) }),
+  },
+  anonGuest: {
+    begin: (hostId: string, keyId: string) => callEnclave("anon_guest.begin", { hostId, keyId }),
+    accept: (input: { handle: string; anchor: HostKeyAnchor; links: EpochLink[]; epoch: number; slot: number; messages: Uint8Array[]; signature: Uint8Array }) =>
+      callEnclave("anon_guest.accept", { ...input, anchor: { keyId: input.anchor.keyId, publicKey: input.anchor.publicKey.slice() }, links: copyLinks(input.links), messages: input.messages.map((m) => m.slice()), signature: input.signature.slice() }),
+    present: (handle: string, challenge: Uint8Array, windowStart: number, windowEnd: number) =>
+      callEnclave("anon_guest.present", { handle, challenge: challenge.slice(), windowStart, windowEnd }),
+    discard: (handle: string) => callEnclave("anon_guest.discard", { handle }),
+  },
+  pqRatchet: {
+    /** Responder: a new session and the RVE2 bundle to hand (authenticated) to the initiator. */
+    initResponder: (userId: string, context: string) => callEnclave("pq_ratchet.init_session", { userId, role: "responder", context }),
+    /**
+     * Initiator: a new session aimed at a published prekey document
+     * (/@handle/prekey-bundle.json). The worker refuses it (bundle_rejected)
+     * unless its passkey signature, MDS3 verdict and age check out.
+     */
+    initInitiator: (userId: string, document: unknown, rpId: string, handle: string, origins: string[]) =>
+      callEnclave("pq_ratchet.init_session", { userId, role: "initiator", document, rpId, handle, origins: [...origins] }),
+    /** Responder keys + the bundle and challenge the member's passkey signs before publishing. */
+    createPrekeyBundle: (userId: string, rpId: string, handle: string) => callEnclave("pq_ratchet.create_prekey_bundle", { userId, rpId, handle }),
+    /** Seeds are transferred (the caller's copies are emptied). */
+    unlockVault: (userId: string, prfSeed: Uint8Array, deviceSeed?: Uint8Array) =>
+      callEnclave("pq_ratchet.unlock_vault", deviceSeed ? { userId, prfSeed, deviceSeed } : { userId, prfSeed }, deviceSeed ? moved(prfSeed, deviceSeed) : moved(prfSeed)),
+    lockVault: () => callEnclave("pq_ratchet.lock_vault", {}),
+    /** After a reload: unlock, then restore the member's sessions. */
+    restoreSessions: async (userId: string, prfSeed: Uint8Array, deviceSeed?: Uint8Array) => {
+      await callEnclave("pq_ratchet.unlock_vault", deviceSeed ? { userId, prfSeed, deviceSeed } : { userId, prfSeed }, deviceSeed ? moved(prfSeed, deviceSeed) : moved(prfSeed));
+      return callEnclave("pq_ratchet.load_session_vault", { userId });
+    },
+    /** Plaintext is transferred (the caller's copy is emptied). */
+    encrypt: (userId: string, sessionId: string, plaintext: Uint8Array) =>
+      callEnclave("pq_ratchet.ratchet_encrypt", { userId, sessionId, plaintext }, moved(plaintext)),
+    decrypt: (userId: string, sessionId: string, envelope: Uint8Array) =>
+      callEnclave("pq_ratchet.ratchet_decrypt", { userId, sessionId, envelope: envelope.slice() }),
+    close: (userId: string, sessionId: string) => callEnclave("pq_ratchet.close_session", { userId, sessionId }),
+  },
+  guestVault: {
+    /** Passkey output → worker (transferred: the caller's copies are emptied). Use guest-passkey.ts to obtain it. */
+    unlock: (input: { credentialId: string; prf?: Uint8Array; signatures?: Uint8Array[] }) =>
+      callEnclave("guest_vault.unlock", input, moved(input.prf, ...(input.signatures ?? []))),
+    lock: () => callEnclave("guest_vault.lock", {}),
+  },
+  anonHost: {
+    verifyPresentation: (input: {
+      anchor: HostKeyAnchor; links: EpochLink[]; epoch: number; minEpoch?: number; presentation: Uint8Array; messages: Uint8Array[];
+      nullifier: Uint8Array; challenge: Uint8Array; windowStart: number; windowEnd: number;
+    }) =>
+      callEnclave("anon_host.verify_presentation", {
+        ...input, anchor: { keyId: input.anchor.keyId, publicKey: input.anchor.publicKey.slice() }, links: copyLinks(input.links),
+        presentation: input.presentation.slice(), messages: input.messages.map((m) => m.slice()), nullifier: input.nullifier.slice(), challenge: input.challenge.slice(),
+      }),
+  },
+  capacity: {
+    open: (userId: string, poolId: string, capacity: number) => callEnclave("capacity.open", { userId, poolId, capacity }),
+    take: (userId: string, poolId: string, step: number, remainingBefore: number, take: number) => callEnclave("capacity.take", { userId, poolId, step, remainingBefore, take }),
+    verifyOpen: (poolId: string, commitment: Uint8Array, proof: Uint8Array) => callEnclave("capacity.verify_open", { poolId, commitment: commitment.slice(), proof: proof.slice() }),
+    verifyTake: (poolId: string, step: number, before: Uint8Array, take: Uint8Array, after: Uint8Array, proof: Uint8Array) =>
+      callEnclave("capacity.verify_take", { poolId, step, before: before.slice(), take: take.slice(), after: after.slice(), proof: proof.slice() }),
+  },
+  hostKey: {
+    /** New forward-secure key chain `keyId` for this member; returns the anchor PK_0 to publish. */
+    init: (userId: string, keyId: string) => callEnclave("host_key.init", { userId, keyId }),
+    /** Ratchets to `toEpoch` (> current); the old state is erased in the worker, the returned link proves the new key. */
+    advanceEpoch: (userId: string, keyId: string, toEpoch: number) => callEnclave("host_key.advance_epoch", { userId, keyId, toEpoch }),
+    /** Credential under the current epoch key; `epoch` must be the current one. A guest commitment makes it blind. */
+    signCredential: (userId: string, keyId: string, epoch: number, messages: Uint8Array[], commitmentWithProof?: Uint8Array) =>
+      callEnclave("host_key.sign_credential", { userId, keyId, epoch, messages: messages.map((m) => m.slice()), ...(commitmentWithProof ? { commitmentWithProof: commitmentWithProof.slice() } : {}) }),
+    chain: (userId: string, keyId: string) => callEnclave("host_key.chain", { userId, keyId }),
+    /** Re-installs a chain from its device-sealed state after a reload; checked against the published chain. */
+    restore: (input: { userId: string; keyId: string; epoch: number; sealedState: Uint8Array; anchor: HostKeyAnchor; links: EpochLink[] }) =>
+      callEnclave("host_key.restore", { ...input, sealedState: input.sealedState.slice(), anchor: { keyId: input.anchor.keyId, publicKey: input.anchor.publicKey.slice() }, links: copyLinks(input.links) }),
+    /** Slot credential for a guest commitment under the current epoch key. */
+    signSlotCredential: (userId: string, keyId: string, epoch: number, slot: number, messages: Uint8Array[], commitmentWithProof: Uint8Array) =>
+      callEnclave("host_key.sign_slot_credential", { userId, keyId, epoch, slot, messages: messages.map((m) => m.slice()), commitmentWithProof: commitmentWithProof.slice() }),
+    /** Guest side; `proverBlind` is transferred (the caller's copy is emptied). */
+    verifyEpochCredential: (input: {
+      anchor: HostKeyAnchor; links: EpochLink[]; epoch: number; minEpoch?: number; signature: Uint8Array; messages: Uint8Array[];
+      committedMessages?: Uint8Array[]; proverBlind?: Uint8Array;
+    }) =>
+      callEnclave(
+        "host_key.verify_epoch_credential",
+        {
+          ...input,
+          anchor: { keyId: input.anchor.keyId, publicKey: input.anchor.publicKey.slice() },
+          links: copyLinks(input.links),
+          signature: input.signature.slice(),
+          messages: input.messages.map((m) => m.slice()),
+          ...(input.committedMessages ? { committedMessages: input.committedMessages.map((m) => m.slice()) } : {}),
+        },
+        moved(input.proverBlind),
+      ),
+  },
+  rve1: {
+    /** This member's RVE1 device key: id and public key only. */
+    deviceKey: (userId: string) => callEnclave("rve1.deviceKey", { userId }),
+    /** UI → worker credential bytes (transferred: the caller's copy is emptied), worker → UI an RVE1 envelope. */
+    sealCredential: (userId: string, purpose: string, plaintext: Uint8Array) =>
+      callEnclave("rve1.seal", { userId, kind: "vcc", purpose, plaintext }, moved(plaintext)),
+    /**
+     * Opens a vcc_ credential for the duration of `use` only; the plaintext is
+     * zero-filled afterwards, whatever `use` returns or throws. Do not keep it.
+     */
+    withCredential: async <T>(userId: string, purpose: string, envelope: Uint8Array, use: (plaintext: Uint8Array) => T | Promise<T>): Promise<T> => {
+      const { plaintext } = await callEnclave("rve1.open", { userId, kind: "vcc", purpose, envelope: envelope.slice() });
+      try {
+        return await use(plaintext);
+      } finally {
+        plaintext.fill(0);
+      }
+    },
+  },
+  hash: {
+    sha256Hex: (text: string) => callEnclave("hash.sha256Hex", { text }),
+  },
+  bhm: {
+    match: (clientId: string, hashes: string[], identities: { kind: string; value: string }[]) =>
+      callEnclave("bhm.match", { clientId, hashes, identities }),
+  },
+  protocol: {
+    verifyChain: (events: SignedEvent[]) => callEnclave("protocol.verifyChain", { events }),
+    identity: (userId: string) => callEnclave("protocol.identity", { userId }),
+    /** UI → worker plaintext (transferred), worker → UI a signed, ciphertext-only event. */
+    sealEvent: (userId: string, at: { stream: string; seq: number; prev: string | null; kind: string; capId?: string }, data: unknown): Promise<SignedEvent> => {
+      const plaintext = new TextEncoder().encode(JSON.stringify(data));
+      return callEnclave("protocol.sealEvent", { userId, ...at, plaintext }, moved(plaintext));
+    },
+    signEvent: (userId: string, draft: EventDraft) => callEnclave("protocol.signEvent", { userId, draft }),
+    openEvent: async <T = unknown>(userId: string, event: SignedEvent): Promise<T> => {
+      const { plaintext } = await callEnclave("protocol.openEvent", { userId, event });
+      try {
+        return JSON.parse(new TextDecoder().decode(plaintext)) as T;
+      } finally {
+        plaintext.fill(0);
+      }
+    },
+    dpop: async (userId: string, method: string, url: string) => (await callEnclave("protocol.dpop", { userId, method, url })).proof,
+    delegate: (userId: string, grant: CapabilityGrant, parent?: Capability | null) => callEnclave("protocol.delegate", { userId, grant, parent: parent ?? null }),
+  },
+  /** Paranoid password input: key bytes stream into a fixed Wasm memory in the worker. */
+  password: {
+    open: () => callEnclave("password.open", {}),
+    /** One key's character; the bytes are transferred and wiped. */
+    key: (slot: string, character: string) => {
+      const key = new TextEncoder().encode(character);
+      return callEnclave("password.key", { slot, key }, moved(key));
+    },
+    backspace: (slot: string) => callEnclave("password.backspace", { slot }),
+    clear: (slot: string) => callEnclave("password.clear", { slot }),
+    close: (slot: string) => callEnclave("password.close", { slot }),
+    equal: (a: string, b: string) => callEnclave("password.equal", { a, b }),
+  },
+  pow: {
+    /** The challenge is transferred. Abortable with abortRunningEnclaveOperation(). */
+    solve: (challenge: Uint8Array, bits: number) => callEnclave("pow.solve", { challenge, bits }, moved(challenge)),
+  },
+  opaque: {
+    /** A typed password's bytes (from the normal field) are transferred; clear the field right after. */
+    registerStart: (password: PasswordSource) => callEnclave("opaque.registerStart", { password }, "bytes" in password ? moved(password.bytes) : []),
+    registerFinish: (handle: string, response: Uint8Array) => callEnclave("opaque.registerFinish", { handle, response }, moved(response)),
+    loginStart: (password: PasswordSource) => callEnclave("opaque.loginStart", { password }, "bytes" in password ? moved(password.bytes) : []),
+    loginFinish: (handle: string, ke2: Uint8Array) => callEnclave("opaque.loginFinish", { handle, ke2 }, moved(ke2)),
+    commit: (handle: string, userId: string) => callEnclave("opaque.commit", { handle, userId }),
+    discard: (handle: string) => callEnclave("opaque.discard", { handle }),
+    vaultKey: (userId: string) => callEnclave("opaque.vaultKey", { userId }),
+  },
+  secure: {
+    /** Runs when the worker is idle (queued); wipes all password state and engine memory. */
+    wipe: () => callEnclave("secure.wipe", {}),
+  },
+};
+
+/**
+ * Asks the operation the worker is running to stop at its next safe point
+ * (between proof-of-work batches, before Argon2id). It then fails with
+ * `aborted` and wipes; never mid-instruction (H.1).
+ */
+export function abortRunningEnclaveOperation(): void {
+  const w = worker;
+  if (!w) return;
+  for (const [id, waiter] of waiting) {
+    if (waiter.owner === w && waiter.started) w.postMessage({ control: "abort", id });
+  }
+}
