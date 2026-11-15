@@ -167,7 +167,7 @@ describe("0274 multi-device host keys on a replay of db/ (held in db-pending/)",
   afterAll(async () => db?.close());
 
   it("0274 is released: in db/ (not db-pending/), CODE_SCHEMA_LEVEL is 0274, the rollback stays held back", () => {
-    expect(CODE_SCHEMA_LEVEL).toBe("0274");
+    expect(CODE_SCHEMA_LEVEL >= "0274").toBe(true);
     expect(readdirSync(join(ROOT, "db")).filter((f) => f.startsWith("0274"))).toEqual([FILE]);
     expect(existsSync(join(ROOT, "db-pending", FILE))).toBe(false);
     expect(existsSync(join(ROOT, "db-pending", "0274_multi_device_host_keys_rollback.sql"))).toBe(true);

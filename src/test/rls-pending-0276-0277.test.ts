@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Stap 10 part II: the held-back migrations db-pending/0276 (EXPAND) and 0277 (CONTRACT).
+ * Stap 10 part II: db/0276 (EXPAND, released 2026-11-15) and the held-back db-pending/0277 (CONTRACT).
  * Replays db/ (0275) on PGlite, shows F1, F2, F3, F8b and F9 are real there, then applies 0276 and
  * 0277 and shows each is closed while the legitimate flows keep working, that the Z3 verifier
  * proves the result (only the reviewed 0277 declassification of public profile columns is added),
@@ -22,7 +22,7 @@ import { contextStatements } from "@/lib/db-context";
 const ROOT = join(__dirname, "..", "..");
 const read = (f: string) => readFileSync(join(ROOT, "db-pending", f), "utf8");
 const F76 = "0276_tenant_column_expand.sql", F77 = "0277_private_columns_contract.sql";
-const SQL76 = read(F76), SQL77 = read(F77);
+const SQL76 = readFileSync(join(ROOT, "db", F76), "utf8"), SQL77 = read(F77);
 const RB76 = read("0276_tenant_column_expand_rollback.sql"), RB77 = read("0277_private_columns_contract_rollback.sql");
 const A = "00000000-0000-4000-8000-00000000000a";
 const B = "00000000-0000-4000-8000-00000000000b";
@@ -105,7 +105,8 @@ describe("db-pending/0276 + 0277 on a replay of db/ (PGlite)", () => {
   beforeAll(async () => {
     db = await PGlite.create({ extensions: { pgcrypto, btree_gist } });
     const dir = join(ROOT, "db");
-    for (const s of planMigrations(listMigrationFiles(dir), new Set())) if (s.action === "run") await db.exec(`begin;\n${readFileSync(join(dir, s.file), "utf8")}\n;commit;`);
+    // db/ up to 0275: 0276 is released (db/) but applied by this test step by step.
+    for (const s of planMigrations(listMigrationFiles(dir).filter((f) => f < F76), new Set())) if (s.action === "run") await db.exec(`begin;\n${readFileSync(join(dir, s.file), "utf8")}\n;commit;`);
     for (const [u, tag] of [[A, "alice"], [B, "bob"]] as const) {
       const mail = u === B ? `${MARK}@example.test` : "alice@example.test";
       await db.query(`insert into public.users (id, email, email_normalized, account_status) values ($1, $2, $2, 'active') on conflict (id) do nothing`, [u, mail]).catch(async () => db.query(`insert into public.users (id, email) values ($1, $2)`, [u, mail]));
