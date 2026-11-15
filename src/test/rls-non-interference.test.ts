@@ -23,7 +23,7 @@ import { readCatalog, type Catalog } from "../../scripts/schema-catalog";
 import { migrationDefinerGuardSql, migrationDefinerViolations } from "../../scripts/security-definer-policy";
 import { Verifier, loadSnapshot, type Report } from "../../scripts/formal-rls-verifier";
 import { parsePolicyExpr } from "../../scripts/formal-rls/sql-expr";
-import { F8A, INVOKER_VIEWS, KNOWN_OPEN } from "../../scripts/formal-rls/tenant-model";
+import { CLOSED_BY_0276, F8A, INVOKER_VIEWS, KNOWN_OPEN } from "../../scripts/formal-rls/tenant-model";
 import { CODE_SCHEMA_LEVEL } from "@/lib/schema-version";
 import { contextStatements } from "@/lib/db-context";
 
@@ -39,6 +39,8 @@ const FIXED_BY_0275 = [
 ];
 const clone = (c: Catalog) => JSON.parse(JSON.stringify(c)) as Catalog;
 const known = new Set(KNOWN_OPEN.map((k) => k.id));
+/** Known at 0275 on the replay: what db/0276 later closed (F3, F8b, the two owner-rights views). */
+const knownAt0275 = new Set([...known, ...CLOSED_BY_0276, "view:public.profile_handles:definer_read", "view:public.public_profiles:definer_read"]);
 
 describe("Z3 proof over the 0275 schema snapshot", () => {
   const snapshot = loadSnapshot(ROOT);
@@ -350,7 +352,7 @@ describe("multi-tenant attacks on a replay of db/ (PGlite)", () => {
     expect(await as(A, `insert into public.workspace_members (workspace_id, user_id, role) values ('00000000-0000-4000-c000-000000000001', $1, 'owner')`, [A]).then(() => 1, () => 0)).toBe(0);
     const v1 = await verify();
     expect(v1.findings.map((f) => f.id).filter((id) => FIXED_BY_0275.includes(id))).toEqual([]);
-    expect(v1.findings.map((f) => f.id).filter((id) => !known.has(id))).toEqual([]);
+    expect(v1.findings.map((f) => f.id).filter((id) => !knownAt0275.has(id))).toEqual([]);
     expect(v1.unusedModelEntries).toEqual([]);
     const fn = await db.query<{ pub: boolean; app: boolean }>(`select has_function_privilege('public', 'public.rout_workspace_claimable(uuid)', 'execute') as pub, has_function_privilege('rout_app', 'public.rout_workspace_claimable(uuid)', 'execute') as app`);
     expect(fn.rows[0]).toEqual({ pub: false, app: true });
