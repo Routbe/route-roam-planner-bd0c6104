@@ -150,7 +150,8 @@ describe("multi-tenant attacks on a replay of db/ (PGlite)", () => {
   beforeAll(async () => {
     db = await PGlite.create({ extensions: { pgcrypto, btree_gist } });
     const dir = join(ROOT, "db");
-    for (const s of planMigrations(listMigrationFiles(dir), new Set())) if (s.action === "run") await db.exec(`begin;\n${readFileSync(join(dir, s.file), "utf8")}\n;commit;`);
+    // db/ up to 0275: this suite is about 0275 and its rollback; 0276 has its own replay test.
+    for (const s of planMigrations(listMigrationFiles(dir).filter((f) => f <= FILE), new Set())) if (s.action === "run") await db.exec(`begin;\n${readFileSync(join(dir, s.file), "utf8")}\n;commit;`);
     for (const [u, tag] of [[A, "alice"], [B, "bob"]] as const) {
       const mail = u === B ? `${B_MARK}@example.test` : "alice@example.test";
       await db.query(`insert into public.users (id, email) values ($1, $2)`, [u, mail]);
@@ -372,6 +373,7 @@ describe("multi-tenant attacks on a replay of db/ (PGlite)", () => {
   it("the reviewed list of security_invoker views matches the database", async () => {
     const r = await db.query<{ k: string }>(`select n.nspname || '.' || c.relname as k from pg_class c join pg_namespace n on n.oid = c.relnamespace
       where c.relkind = 'v' and 'security_invoker=true' = any(coalesce(c.reloptions, '{}')) order by 1`);
-    expect(r.rows.map((x) => x.k)).toEqual([...INVOKER_VIEWS].sort());
+    // At 0275; db/0276 adds public.profile_handles and public.public_profiles.
+    expect(r.rows.map((x) => x.k)).toEqual([...INVOKER_VIEWS].filter((v) => !["public.profile_handles", "public.public_profiles"].includes(v)).sort());
   });
 });
