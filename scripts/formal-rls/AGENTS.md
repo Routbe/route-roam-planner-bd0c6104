@@ -1,0 +1,3 @@
+## RLS non-interference proof
+- scripts/formal-rls-verifier.ts proves with Z3 that no rout_app policy admits another tenant's row; its reviewed exceptions live only in tenant-model.ts here, any new finding or unused exception fails src/test/rls-non-interference.test.ts, and a fixed finding leaves KNOWN_OPEN in the same change. Why: the list may only shrink, and a schema change cannot silently reopen cross-tenant access.
+- Helpers whose meaning the encoder relies on (SRF_LEMMAS, PINNED_FUNCTIONS) are pinned to their exact SQL body; a changed body makes the dependent policy unproven. Why: the proof must never trust a function it has not read.
