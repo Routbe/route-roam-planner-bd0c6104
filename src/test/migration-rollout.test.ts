@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * scripts/migration-rollout.ts: the one-file gateway batch used for each GO
- * (0273, now 0274). Emulates the gateway batch (one transaction, every query
+ * (0273, 0274, now 0276). Emulates the gateway batch (one transaction, every query
  * with its params) on PGlite over a replay of db/ before the file, recorded as
  * Neon has it.
  */
@@ -15,11 +15,11 @@ import { catalogJson, readCatalog } from "../../scripts/schema-catalog";
 
 const ROOT = join(__dirname, "..", "..");
 const DIR = join(ROOT, "db");
-const FILE = "0274_multi_device_host_keys.sql";
-const AFTER = "0273_anonymous_booking_engine.sql";
+const FILE = "0276_tenant_column_expand.sql";
+const AFTER = "0275_rls_non_interference_hardening.sql";
 const BODY = readFileSync(join(DIR, FILE), "utf8");
 
-describe("one-file rollout batch (0274)", () => {
+describe("one-file rollout batch (0276)", () => {
   let db: PGlite;
   const batch = async (queries: RolloutQuery[]) => {
     await db.exec("begin");
@@ -33,8 +33,8 @@ describe("one-file rollout batch (0274)", () => {
       throw e;
     }
   };
-  const anonTables = async () =>
-    (await db.query<{ n: number }>("select count(*)::int as n from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'vault_enclave' and c.relkind = 'r' and c.relname like 'anon%'")).rows[0]!.n;
+  const newFns = async () =>
+    (await db.query<{ n: number }>("select count(*)::int as n from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('rout_tenant_ref_kept', 'rout_public_social_links', 'rout_profile_private_mine')")).rows[0]!.n;
   const recorded = async () => (await db.query<{ checksum: string }>("select checksum from public.schema_migrations where filename = $1", [FILE])).rows;
 
   beforeAll(async () => {
@@ -59,18 +59,18 @@ describe("one-file rollout batch (0274)", () => {
 
   it("refuses a text that differs by one byte, a missing predecessor, and changes nothing", async () => {
     const good = rolloutBatch(FILE, AFTER, BODY);
-    const tampered = good.map((q) => (q.params.length === 4 ? { ...q, params: [FILE, AFTER, BODY.replace("deny_all", "deny_alx"), q.params[3]] } : q));
+    const tampered = good.map((q) => (q.params.length === 4 ? { ...q, params: [FILE, AFTER, BODY.replace("rout_tenant_ref_kept", "rout_tenant_ref_kepx"), q.params[3]] } : q));
     await expect(batch(tampered)).rejects.toThrow(/does not match checksum/);
-    await expect(batch(rolloutBatch(FILE, "0272_dynamic_recovery_v4.sql_missing", BODY))).rejects.toThrow(/predecessor/);
-    expect(await anonTables()).toBe(9);
+    await expect(batch(rolloutBatch(FILE, "0274_multi_device_host_keys.sql_missing", BODY))).rejects.toThrow(/predecessor/);
+    expect(await newFns()).toBe(0);
     expect(await recorded()).toEqual([]);
   });
 
-  it("applies 0274 exactly like the snapshot replay, records the file checksum, and refuses a second run", async () => {
+  it("applies 0276 exactly like the snapshot replay, records the file checksum, and refuses a second run", async () => {
     const rows = await batch(rolloutBatch(FILE, AFTER, BODY));
     expect(rows[1]).toEqual([{ applied: checksumOf(BODY) }]);
     expect(await recorded()).toEqual([{ checksum: checksumOf(BODY) }]);
-    expect(await anonTables()).toBe(11);
+    expect(await newFns()).toBe(3);
     const catalog = await readCatalog(async (q) => (await db.query<Record<string, unknown>>(q)).rows);
     expect(catalogJson(catalog)).toBe(readFileSync(join(DIR, "schema.snapshot.json"), "utf8"));
     expect((await db.query("select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where p.proname = 'rout_rollout'")).rows).toEqual([]);

@@ -2430,7 +2430,7 @@ export interface PublicWebhookEventsRow {
 export interface PublicWorkspaceInvitesRow {
   "id": string;
   "workspace_id": string;
-  "email": string;
+  "email": string | null;
   "role": PublicWorkspaceRole;
   "invited_by": string;
   "status": string;

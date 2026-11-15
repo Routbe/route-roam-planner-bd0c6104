@@ -59,9 +59,11 @@ describe("database hardening migrations (snapshot)", () => {
     return table;
   };
   it("owner and workspace tables get a scope policy", () => {
-    for (const n of ["bookings", "user_assets", "workspace_members", "profile_drafts"]) {
+    for (const n of ["bookings", "user_assets", "profile_drafts"]) {
       expect(pub(n).policies.map((p) => p.name)).toContain("rout_scope");
     }
+    // db/0275 (F7) replaced the self-join rout_scope on workspace_members with narrow policies.
+    expect(pub("workspace_members").policies.map((p) => p.name)).toEqual(expect.arrayContaining(["rout_self_read", "rout_self_leave", "rout_first_member"]));
   });
   it("secret tables stay deny-by-default for runtime; only the non-login merge executor has a policy", () => {
     for (const n of ["auth_tokens", "user_sessions"]) {

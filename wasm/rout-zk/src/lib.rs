@@ -47,6 +47,8 @@ pub mod pq_ratchet;
 pub mod pseudonym;
 pub mod random;
 pub mod smt;
+pub mod vdf;
+pub mod vdf_cg;
 pub mod wipe;
 pub mod xmd;
 

@@ -36,7 +36,7 @@ pub const MAX_T: u64 = 1 << 32;
 const DST_X: &[u8] = b"ROUT-VDF-WES-RSA2048-v1:x";
 const DST_L: &[u8] = b"ROUT-VDF-WES-RSA2048-v1:l";
 const L: usize = 32;
-const PL: usize = 4;
+pub(crate) const PL: usize = 4;
 
 /// RSA-2048 challenge modulus, little-endian 64-bit limbs.
 pub const N: [u64; L] = [
@@ -49,7 +49,7 @@ pub const N: [u64; L] = [
     0xa04107f0648c2813, 0x721aeeacc2acde32, 0xc72f93d1650011bd, 0x7ff0db8e1ea1189e,
     0xa8726f463550bb5b, 0x73911081c790f5f1, 0x4490201a7aa613cd, 0xc7970ceedcc3b075,];
 
-type Limbs<const K: usize> = [u64; K];
+pub(crate) type Limbs<const K: usize> = [u64; K];
 
 #[inline(always)]
 fn mac(a: u64, b: u64, c: u64, carry: u64) -> (u64, u64) {
@@ -70,7 +70,7 @@ fn sbb(a: u64, b: u64, borrow: u64) -> (u64, u64) {
 }
 
 /// a - b and the final borrow (1 when a < b).
-fn sub<const K: usize>(a: &Limbs<K>, b: &Limbs<K>) -> (Limbs<K>, u64) {
+pub(crate) fn sub<const K: usize>(a: &Limbs<K>, b: &Limbs<K>) -> (Limbs<K>, u64) {
     let mut out = [0u64; K];
     let mut borrow = 0;
     for i in 0..K {
@@ -82,7 +82,7 @@ fn sub<const K: usize>(a: &Limbs<K>, b: &Limbs<K>) -> (Limbs<K>, u64) {
 }
 
 /// 2a and the bit shifted out.
-fn shl1<const K: usize>(a: &Limbs<K>) -> (Limbs<K>, u64) {
+pub(crate) fn shl1<const K: usize>(a: &Limbs<K>) -> (Limbs<K>, u64) {
     let mut out = [0u64; K];
     let mut carry = 0;
     for i in 0..K {
@@ -93,7 +93,7 @@ fn shl1<const K: usize>(a: &Limbs<K>) -> (Limbs<K>, u64) {
 }
 
 /// `yes` when choice == 1, else `no` (branch-free).
-fn select<const K: usize>(yes: &Limbs<K>, no: &Limbs<K>, choice: u64) -> Limbs<K> {
+pub(crate) fn select<const K: usize>(yes: &Limbs<K>, no: &Limbs<K>, choice: u64) -> Limbs<K> {
     let mask = 0u64.wrapping_sub(choice & 1);
     let mut out = [0u64; K];
     for i in 0..K {
@@ -102,15 +102,15 @@ fn select<const K: usize>(yes: &Limbs<K>, no: &Limbs<K>, choice: u64) -> Limbs<K
     out
 }
 
-fn is_zero<const K: usize>(a: &Limbs<K>) -> bool {
+pub(crate) fn is_zero<const K: usize>(a: &Limbs<K>) -> bool {
     a.iter().fold(0u64, |acc, x| acc | x) == 0
 }
 
-fn eq<const K: usize>(a: &Limbs<K>, b: &Limbs<K>) -> bool {
+pub(crate) fn eq<const K: usize>(a: &Limbs<K>, b: &Limbs<K>) -> bool {
     a.iter().zip(b.iter()).fold(0u64, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-fn from_be<const K: usize>(b: &[u8]) -> Limbs<K> {
+pub(crate) fn from_be<const K: usize>(b: &[u8]) -> Limbs<K> {
     let mut out = [0u64; K];
     for i in 0..K {
         let end = b.len() - 8 * i;
@@ -121,7 +121,7 @@ fn from_be<const K: usize>(b: &[u8]) -> Limbs<K> {
     out
 }
 
-fn to_be<const K: usize>(a: &Limbs<K>, out: &mut [u8]) {
+pub(crate) fn to_be<const K: usize>(a: &Limbs<K>, out: &mut [u8]) {
     let n = out.len();
     for i in 0..K {
         out[n - 8 * (i + 1)..n - 8 * i].copy_from_slice(&a[i].to_be_bytes());
@@ -129,16 +129,16 @@ fn to_be<const K: usize>(a: &Limbs<K>, out: &mut [u8]) {
 }
 
 /// Montgomery arithmetic modulo an odd n (R = 2^(64K)).
-struct Monty<const K: usize> {
-    n: Limbs<K>,
+pub(crate) struct Monty<const K: usize> {
+    pub(crate) n: Limbs<K>,
     n0: u64,
     /// R mod n: the Montgomery form of 1.
-    one: Limbs<K>,
+    pub(crate) one: Limbs<K>,
     r2: Limbs<K>,
 }
 
 impl<const K: usize> Monty<K> {
-    fn new(n: &Limbs<K>) -> Self {
+    pub(crate) fn new(n: &Limbs<K>) -> Self {
         let mut inv: u64 = 1;
         for _ in 0..6 {
             inv = inv.wrapping_mul(2u64.wrapping_sub(n[0].wrapping_mul(inv)));
@@ -165,7 +165,7 @@ impl<const K: usize> Monty<K> {
     }
 
     /// a * b * R^-1 mod n for a, b < n (CIOS).
-    fn mul(&self, a: &Limbs<K>, b: &Limbs<K>) -> Limbs<K> {
+    pub(crate) fn mul(&self, a: &Limbs<K>, b: &Limbs<K>) -> Limbs<K> {
         let mut t = [0u64; K];
         let mut t_hi: u64 = 0;
         for i in 0..K {
@@ -191,18 +191,18 @@ impl<const K: usize> Monty<K> {
         select(&d, &t, (t_hi & 1) | (borrow ^ 1))
     }
 
-    fn to_mont(&self, a: &Limbs<K>) -> Limbs<K> {
+    pub(crate) fn to_mont(&self, a: &Limbs<K>) -> Limbs<K> {
         self.mul(a, &self.r2)
     }
 
-    fn from_mont(&self, a: &Limbs<K>) -> Limbs<K> {
+    pub(crate) fn from_mont(&self, a: &Limbs<K>) -> Limbs<K> {
         let mut one = [0u64; K];
         one[0] = 1;
         self.mul(a, &one)
     }
 
     /// base^e (Montgomery form in and out), e as little-endian limbs, every bit processed.
-    fn pow<const E: usize>(&self, base: &Limbs<K>, e: &Limbs<E>) -> Limbs<K> {
+    pub(crate) fn pow<const E: usize>(&self, base: &Limbs<K>, e: &Limbs<E>) -> Limbs<K> {
         let mut acc = self.one;
         for i in (0..64 * E).rev() {
             acc = self.mul(&acc, &acc);
@@ -252,9 +252,9 @@ fn hash_to_group(m: &Monty<L>, input: &[u8], t: u64) -> Result<Limbs<L>> {
     Ok(canon(m, &x))
 }
 
-const SMALL_PRIMES: [u64; 24] = [3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97];
+pub(crate) const SMALL_PRIMES: [u64; 24] = [3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97];
 
-fn rem_small(a: &Limbs<PL>, p: u64) -> u64 {
+pub(crate) fn rem_small(a: &Limbs<PL>, p: u64) -> u64 {
     let mut r: u128 = 0;
     for i in (0..PL).rev() {
         r = ((r << 64) | a[i] as u128) % p as u128;
@@ -263,7 +263,7 @@ fn rem_small(a: &Limbs<PL>, p: u64) -> u64 {
 }
 
 /// Miller-Rabin with the bases 2 and SMALL_PRIMES (25 rounds) after trial division.
-fn probable_prime(c: &Limbs<PL>) -> bool {
+pub(crate) fn probable_prime(c: &Limbs<PL>) -> bool {
     if c[0] & 1 == 0 {
         return false;
     }
@@ -307,9 +307,14 @@ fn probable_prime(c: &Limbs<PL>) -> bool {
 
 /// l = HashToPrime(T, x, y): the first SHA-256 candidate (top and low bit set) that is a probable prime.
 fn hash_to_prime(t: u64, x: &[u8], y: &[u8]) -> Result<Limbs<PL>> {
+    hash_to_prime_dst(DST_L, t, x, y)
+}
+
+/// HashToPrime under a caller-chosen domain separation tag.
+pub(crate) fn hash_to_prime_dst(dst: &[u8], t: u64, x: &[u8], y: &[u8]) -> Result<Limbs<PL>> {
     for ctr in 0u32..65_536 {
         let mut h = Sha256::new();
-        h.update(DST_L);
+        h.update(dst);
         h.update(ctr.to_be_bytes());
         h.update(t.to_be_bytes());
         h.update(x);
@@ -340,11 +345,11 @@ pub fn evaluate(input: &[u8], t: u64, out: &mut [u8]) -> Result<()> {
     let m = Monty::<L>::new(&N);
     let x = hash_to_group(&m, input, t)?;
     let xm = m.to_mont(&x);
-    let mut y = xm;
+    let mut y_m = xm;
     for _ in 0..t {
-        y = m.mul(&y, &y);
+        y_m = m.mul(&y_m, &y_m);
     }
-    let y = canon(&m, &m.from_mont(&y));
+    let y = canon(&m, &m.from_mont(&y_m));
     let mut xb = [0u8; ELEM_LEN];
     let (yb, pb) = out.split_at_mut(ELEM_LEN);
     to_be(&x, &mut xb);
@@ -364,6 +369,9 @@ pub fn evaluate(input: &[u8], t: u64, out: &mut [u8]) -> Result<()> {
         pi = select(&px, &pi, bit);
     }
     to_be(&canon(&m, &m.from_mont(&pi)), pb);
+    crate::wipe::words(&mut pi);
+    crate::wipe::words(&mut y_m);
+    crate::wipe::words(&mut r);
     Ok(())
 }
 
@@ -414,7 +422,8 @@ mod unit {
         p[PL - 1] = 1 << 63;
         p[0] = 95;
         assert!(probable_prime(&p));
-        p[0] = 97;
-        assert!(!probable_prime(&p) || true);
+        p[0] = 97; // 2^255 + 97 = 3 * ... is composite
+        assert_eq!(rem_small(&p, 3), 0);
+        assert!(!probable_prime(&p));
     }
 }

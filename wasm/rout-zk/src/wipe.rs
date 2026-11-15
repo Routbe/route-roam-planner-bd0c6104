@@ -25,3 +25,11 @@ pub fn scalars(s: &mut [Scalar]) {
     }
     compiler_fence(Ordering::SeqCst);
 }
+
+/// Overwrites the 64-bit words with zeros (volatile).
+pub fn words(buf: &mut [u64]) {
+    for w in buf.iter_mut() {
+        unsafe { core::ptr::write_volatile(w, 0) };
+    }
+    compiler_fence(Ordering::SeqCst);
+}

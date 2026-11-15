@@ -5500,6 +5500,16 @@
           "cmd": "INSERT",
           "using": null,
           "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id))"
+        },
+        {
+          "name": "rout_ws_update_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "UPDATE",
+          "using": null,
+          "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id) OR rout_tenant_ref_kept('booking_event_types'::text, id, workspace_id))"
         }
       ],
       "grants": {
@@ -6091,6 +6101,16 @@
           "cmd": "INSERT",
           "using": null,
           "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id))"
+        },
+        {
+          "name": "rout_ws_update_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "UPDATE",
+          "using": null,
+          "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id) OR rout_tenant_ref_kept('bookings'::text, id, workspace_id))"
         }
       ],
       "grants": {
@@ -12413,6 +12433,16 @@
           "cmd": "INSERT",
           "using": null,
           "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id))"
+        },
+        {
+          "name": "rout_ws_update_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "UPDATE",
+          "using": null,
+          "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id) OR rout_tenant_ref_kept('oauth_clients'::text, id, workspace_id))"
         }
       ],
       "grants": {
@@ -17370,6 +17400,26 @@
           "cmd": "ALL",
           "using": "((workspace_id IS NOT NULL) AND rout_is_workspace_member(workspace_id))",
           "check": "((workspace_id IS NOT NULL) AND rout_is_workspace_member(workspace_id))"
+        },
+        {
+          "name": "rout_ws_insert_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "INSERT",
+          "using": null,
+          "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id))"
+        },
+        {
+          "name": "rout_ws_update_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "UPDATE",
+          "using": null,
+          "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id) OR rout_tenant_ref_kept('profiles'::text, id, workspace_id))"
         }
       ],
       "grants": {
@@ -19174,6 +19224,16 @@
           "cmd": "INSERT",
           "using": null,
           "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id))"
+        },
+        {
+          "name": "rout_ws_update_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "UPDATE",
+          "using": null,
+          "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id) OR rout_tenant_ref_kept('rout_calendars'::text, id, workspace_id))"
         }
       ],
       "grants": {
@@ -21011,7 +21071,7 @@
             "public"
           ],
           "cmd": "DELETE",
-          "using": "(profile_id = current_app_user_id())",
+          "using": "(profile_id = rout_current_user_id())",
           "check": null
         },
         {
@@ -21022,7 +21082,7 @@
           ],
           "cmd": "INSERT",
           "using": null,
-          "check": "(profile_id = current_app_user_id())"
+          "check": "(profile_id = rout_current_user_id())"
         },
         {
           "name": "social_links_owner_update",
@@ -21031,8 +21091,8 @@
             "public"
           ],
           "cmd": "UPDATE",
-          "using": "(profile_id = current_app_user_id())",
-          "check": null
+          "using": "(profile_id = rout_current_user_id())",
+          "check": "(profile_id = rout_current_user_id())"
         },
         {
           "name": "social_links_public_select",
@@ -21573,6 +21633,16 @@
           "cmd": "INSERT",
           "using": null,
           "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id))"
+        },
+        {
+          "name": "rout_ws_update_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "UPDATE",
+          "using": null,
+          "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id) OR rout_tenant_ref_kept('tracked_qrs'::text, id, workspace_id))"
         }
       ],
       "grants": {
@@ -21827,6 +21897,16 @@
           "cmd": "INSERT",
           "using": null,
           "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id))"
+        },
+        {
+          "name": "rout_ws_update_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "UPDATE",
+          "using": null,
+          "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id) OR rout_tenant_ref_kept('user_assets'::text, id, workspace_id))"
         }
       ],
       "grants": {
@@ -24576,6 +24656,26 @@
           "cmd": "ALL",
           "using": "(id = rout_current_user_id())",
           "check": "(id = rout_current_user_id())"
+        },
+        {
+          "name": "rout_ws_insert_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "INSERT",
+          "using": null,
+          "check": "((migrated_to_workspace_id IS NULL) OR rout_is_workspace_member(migrated_to_workspace_id))"
+        },
+        {
+          "name": "rout_ws_update_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "UPDATE",
+          "using": null,
+          "check": "((migrated_to_workspace_id IS NULL) OR rout_is_workspace_member(migrated_to_workspace_id) OR rout_tenant_ref_kept('users'::text, id, migrated_to_workspace_id))"
         }
       ],
       "grants": {
@@ -25554,6 +25654,16 @@
           "cmd": "INSERT",
           "using": null,
           "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id))"
+        },
+        {
+          "name": "rout_ws_update_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "UPDATE",
+          "using": null,
+          "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id) OR rout_tenant_ref_kept('webhook_endpoints'::text, id, workspace_id))"
         }
       ],
       "grants": {
@@ -25721,7 +25831,7 @@
         {
           "name": "email",
           "type": "text",
-          "notNull": true,
+          "notNull": false,
           "default": null,
           "identity": null,
           "generated": null
@@ -25789,6 +25899,11 @@
           "def": "CHECK ((status = ANY (ARRAY['pending'::text, 'accepted'::text, 'revoked'::text])))"
         },
         {
+          "name": "workspace_invites_target_check",
+          "kind": "c",
+          "def": "CHECK (((email IS NOT NULL) OR (invited_user_id IS NOT NULL)))"
+        },
+        {
           "name": "workspace_invites_workspace_id_fkey",
           "kind": "f",
           "def": "FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE"
@@ -25796,7 +25911,8 @@
       ],
       "indexes": [
         "CREATE INDEX workspace_invites_email_idx ON public.workspace_invites USING btree (lower(email)) WHERE (status = 'pending'::text)",
-        "CREATE UNIQUE INDEX workspace_invites_open_idx ON public.workspace_invites USING btree (workspace_id, lower(email)) WHERE (status = 'pending'::text)"
+        "CREATE UNIQUE INDEX workspace_invites_open_idx ON public.workspace_invites USING btree (workspace_id, lower(email)) WHERE (status = 'pending'::text)",
+        "CREATE UNIQUE INDEX workspace_invites_open_member_idx ON public.workspace_invites USING btree (workspace_id, invited_user_id) WHERE ((status = 'pending'::text) AND (invited_user_id IS NOT NULL))"
       ],
       "triggers": [],
       "rls": true,
@@ -26545,6 +26661,16 @@
           "cmd": "INSERT",
           "using": null,
           "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id))"
+        },
+        {
+          "name": "rout_ws_update_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "UPDATE",
+          "using": null,
+          "check": "((workspace_id IS NULL) OR rout_is_workspace_member(workspace_id) OR rout_tenant_ref_kept('workspace_transfers'::text, id, workspace_id))"
         }
       ],
       "grants": {
@@ -26793,7 +26919,17 @@
           ],
           "cmd": "INSERT",
           "using": null,
-          "check": "(rout_current_user_id() IS NOT NULL)"
+          "check": "((rout_current_user_id() IS NOT NULL) AND ((legacy_user_id IS NULL) OR (legacy_user_id = rout_current_user_id())))"
+        },
+        {
+          "name": "rout_legacy_update_guard",
+          "permissive": false,
+          "roles": [
+            "public"
+          ],
+          "cmd": "UPDATE",
+          "using": null,
+          "check": "((legacy_user_id IS NULL) OR (legacy_user_id = rout_current_user_id()) OR rout_tenant_ref_kept('workspaces'::text, id, legacy_user_id))"
         },
         {
           "name": "rout_scope",
@@ -31016,6 +31152,12 @@
     },
     {
       "schema": "public",
+      "name": "rout_admin_profiles_private",
+      "args": "",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_admin_profiles_private()\n RETURNS TABLE(id uuid, email text, forwarding_email text, legal_first_name text, legal_last_name text, last_city text, last_country text, last_location_at timestamp with time zone)\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select p.id, p.email, p.forwarding_email, p.legal_first_name, p.legal_last_name,\n         p.last_city, p.last_country, p.last_location_at\n    from public.profiles p\n   where public.rout_caller_is_admin()\n$function$"
+    },
+    {
+      "schema": "public",
       "name": "rout_agent_audit_log",
       "args": "p_workspace_id uuid, p_user_id uuid, p_client_id text, p_action text, p_target_table text, p_target_id text, p_previous jsonb, p_new jsonb",
       "def": "CREATE OR REPLACE FUNCTION public.rout_agent_audit_log(p_workspace_id uuid, p_user_id uuid, p_client_id text, p_action text, p_target_table text, p_target_id text, p_previous jsonb, p_new jsonb)\n RETURNS uuid\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  declare v_id uuid;\n  begin\n    if p_user_id is distinct from public.rout_current_user_id() then\n      raise exception 'actor_mismatch';\n    end if;\n    insert into public.agent_audit_logs\n      (workspace_id, user_id, actor_client_id, action, target_table, target_id, previous_state, new_state)\n    values (p_workspace_id, p_user_id, p_client_id, p_action, p_target_table, p_target_id, p_previous, p_new)\n    returning id into v_id;\n    return v_id;\n  end $function$"
@@ -31586,6 +31728,12 @@
     },
     {
       "schema": "public",
+      "name": "rout_forwarding_token_lookup",
+      "args": "p_token text",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_forwarding_token_lookup(p_token text)\n RETURNS TABLE(id uuid, forwarding_email text, forwarding_email_token_expires_at timestamp with time zone)\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select p.id, p.forwarding_email, p.forwarding_email_token_expires_at\n    from public.profiles p\n   where pg_catalog.length(coalesce(p_token, '')) >= 16 and p.forwarding_email_token = p_token\n   limit 1\n$function$"
+    },
+    {
+      "schema": "public",
       "name": "rout_gift_card_activate",
       "args": "p_gift uuid, p_reference text, p_max_redemptions integer, p_expires_at timestamp with time zone, p_paid_cents integer",
       "def": "CREATE OR REPLACE FUNCTION public.rout_gift_card_activate(p_gift uuid, p_reference text, p_max_redemptions integer, p_expires_at timestamp with time zone, p_paid_cents integer)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\ndeclare g public.gift_cards;\nbegin\n  select * into g from public.gift_cards where id = p_gift for update;\n  if not found then return pg_catalog.jsonb_build_object('outcome', 'not_found'); end if;\n  if p_paid_cents is not null and p_paid_cents <> g.amount_cents then\n    return pg_catalog.jsonb_build_object('outcome', 'amount_mismatch');\n  end if;\n  if coalesce(p_max_redemptions, 1) not between 1 and 10000 then\n    raise exception 'invalid redemption cap' using errcode = '22023';\n  end if;\n  if not (g.status = 'pending'\n          or (g.status = 'paid' and not exists (select 1 from public.promo_codes c where c.code = g.code))) then\n    return pg_catalog.jsonb_build_object('outcome', 'duplicate');\n  end if;\n  update public.gift_cards\n     set status = 'paid', paid_at = pg_catalog.now(),\n         fulfilment_status = case when physical_delivery then 'pending_print' else fulfilment_status end,\n         stripe_reference = coalesce(p_reference, stripe_reference), updated_at = pg_catalog.now()\n   where id = p_gift\n  returning * into g;\n  insert into public.promo_codes (code, label, percent_off, amount_off_cents, max_redemptions, expires_at, active)\n  values (g.code, 'Cadeaubon', 0, g.amount_cents, coalesce(p_max_redemptions, 1), p_expires_at, true)\n  on conflict (code) do nothing;\n  return pg_catalog.jsonb_build_object('outcome', 'activated', 'card', pg_catalog.to_jsonb(g));\nend $function$"
@@ -32144,6 +32292,24 @@
     },
     {
       "schema": "public",
+      "name": "rout_profile_export_mine",
+      "args": "",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_profile_export_mine()\n RETURNS jsonb\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select pg_catalog.to_jsonb(p) from public.profiles p where p.id = public.rout_current_user_id()\n$function$"
+    },
+    {
+      "schema": "public",
+      "name": "rout_profile_notify_address",
+      "args": "p_profile uuid, p_purpose text",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_profile_notify_address(p_profile uuid, p_purpose text)\n RETURNS text\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select coalesce(p.forwarding_email, p.email)\n    from public.profiles p\n   where p.id = p_profile\n     and p_purpose in ('booking_request', 'contact_form')\n     and pg_catalog.jsonb_typeof(p.blocks) = 'array'\n     and exists (select 1 from pg_catalog.jsonb_array_elements(p.blocks) b\n                  where b.value ->> 'kind' = p_purpose and coalesce(b.value ->> 'hidden', 'false') <> 'true')\n$function$"
+    },
+    {
+      "schema": "public",
+      "name": "rout_profile_private_mine",
+      "args": "",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_profile_private_mine()\n RETURNS TABLE(email text, forwarding_email text, forwarding_email_verified boolean, forwarding_email_token text, forwarding_email_token_expires_at timestamp with time zone, legal_first_name text, legal_last_name text, last_city text, last_country text, last_location_at timestamp with time zone)\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select p.email, p.forwarding_email, p.forwarding_email_verified, p.forwarding_email_token,\n         p.forwarding_email_token_expires_at, p.legal_first_name, p.legal_last_name,\n         p.last_city, p.last_country, p.last_location_at\n    from public.profiles p\n   where p.id = public.rout_current_user_id()\n$function$"
+    },
+    {
+      "schema": "public",
       "name": "rout_profile_qa_level",
       "args": "p_handle text",
       "def": "CREATE OR REPLACE FUNCTION public.rout_profile_qa_level(p_handle text)\n RETURNS qa_permission_level\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select case when u.qa_permission_level <> 'public_unrestricted' then u.qa_permission_level\n              when u.date_of_birth > (current_date - interval '16 years') then 'verified_only'::public.qa_permission_level\n              else u.qa_permission_level end\n    from public.profiles p join public.users u on u.id = p.id\n   where lower(p.username) = lower(p_handle)\n   limit 1\n$function$"
@@ -32267,6 +32433,12 @@
       "name": "rout_public_calendar",
       "args": "p_public_id text",
       "def": "CREATE OR REPLACE FUNCTION public.rout_public_calendar(p_public_id text)\n RETURNS TABLE(title text, description text, event_type_id uuid)\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select c.title, c.description, c.event_type_id\n    from public.rout_calendars c\n   where c.public_id = p_public_id\n     and c.is_active\n     and (c.expires_at is null or c.expires_at > now())\n   limit 1\n$function$"
+    },
+    {
+      "schema": "public",
+      "name": "rout_public_social_links",
+      "args": "p_profile uuid",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_public_social_links(p_profile uuid)\n RETURNS TABLE(platform text, username text, follower_count integer, checked_at timestamp with time zone)\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select s.platform, s.username, s.follower_count, coalesce(s.last_synced_at, s.verified_at)\n    from public.social_links s\n   where s.profile_id = p_profile and s.is_verified = true\n   order by s.position, s.created_at\n   limit 50\n$function$"
     },
     {
       "schema": "public",
@@ -32504,6 +32676,12 @@
     },
     {
       "schema": "public",
+      "name": "rout_resolve_member",
+      "args": "p_identifier text",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_resolve_member(p_identifier text)\n RETURNS TABLE(user_id uuid, username text)\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select u.id, p.username from public.users u left join public.profiles p on p.id = u.id\n  where public.rout_current_user_id() is not null and u.account_status = 'active'\n    and (pg_catalog.lower(p.username) = pg_catalog.lower(pg_catalog.ltrim(p_identifier, '@'))\n         or u.email_normalized = pg_catalog.lower(p_identifier))\n  limit 1\n$function$"
+    },
+    {
+      "schema": "public",
       "name": "rout_reviewer_admin_id",
       "args": "",
       "def": "CREATE OR REPLACE FUNCTION public.rout_reviewer_admin_id()\n RETURNS uuid\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select r.user_id from public.user_roles r where r.role::text = 'admin' order by r.user_id limit 1\n$function$"
@@ -32618,9 +32796,21 @@
     },
     {
       "schema": "public",
+      "name": "rout_tenant_ref_kept",
+      "args": "p_table text, p_id uuid, p_ref uuid",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_tenant_ref_kept(p_table text, p_id uuid, p_ref uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select case p_table\n    when 'booking_event_types' then exists (select 1 from public.booking_event_types t where t.id = p_id and t.workspace_id is not distinct from p_ref)\n    when 'bookings' then exists (select 1 from public.bookings t where t.id = p_id and t.workspace_id is not distinct from p_ref)\n    when 'oauth_clients' then exists (select 1 from public.oauth_clients t where t.id = p_id and t.workspace_id is not distinct from p_ref)\n    when 'rout_calendars' then exists (select 1 from public.rout_calendars t where t.id = p_id and t.workspace_id is not distinct from p_ref)\n    when 'tracked_qrs' then exists (select 1 from public.tracked_qrs t where t.id = p_id and t.workspace_id is not distinct from p_ref)\n    when 'user_assets' then exists (select 1 from public.user_assets t where t.id = p_id and t.workspace_id is not distinct from p_ref)\n    when 'webhook_endpoints' then exists (select 1 from public.webhook_endpoints t where t.id = p_id and t.workspace_id is not distinct from p_ref)\n    when 'workspace_transfers' then exists (select 1 from public.workspace_transfers t where t.id = p_id and t.workspace_id is not distinct from p_ref)\n    when 'profiles' then exists (select 1 from public.profiles t where t.id = p_id and t.workspace_id is not distinct from p_ref)\n    when 'users' then exists (select 1 from public.users t where t.id = p_id and t.migrated_to_workspace_id is not distinct from p_ref)\n    when 'workspaces' then exists (select 1 from public.workspaces t where t.id = p_id and t.legacy_user_id is not distinct from p_ref)\n    else false end\n$function$"
+    },
+    {
+      "schema": "public",
       "name": "rout_transfer_by_token",
       "args": "p_hash text",
       "def": "CREATE OR REPLACE FUNCTION public.rout_transfer_by_token(p_hash text)\n RETURNS SETOF workspace_transfers\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$ select * from public.workspace_transfers where token_hash = p_hash limit 1 $function$"
+    },
+    {
+      "schema": "public",
+      "name": "rout_transfer_owner_address",
+      "args": "p_transfer uuid",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_transfer_owner_address(p_transfer uuid)\n RETURNS text\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select u.email\n    from public.workspace_transfers t\n    join public.users u on u.id = t.target_user_id\n   where t.id = p_transfer\n     and t.source_user_id = public.rout_current_user_id()\n     and t.otp_verified_at is not null\n     and t.status in ('pending', 'otp_ok')\n     and t.expires_at > pg_catalog.now()\n$function$"
     },
     {
       "schema": "public",
